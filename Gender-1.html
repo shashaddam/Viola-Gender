@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Edukasi AR: Anti Kekerasan Berbasis Gender</title>
+    <!-- Memuat Tailwind CSS untuk styling dasar UI/Instruksi -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Memuat A-Frame -->
+    <script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
+    <!-- PERBAIKAN: Menggunakan versi AR.js terbaru (master) dari Githack untuk kompatibilitas dengan A-Frame 1.5.0 -->
+    <script src="https://raw.githack.com/AR-js-org/AR.js/master/aframe/build/ar-aframe.js"></script>
+    <style>
+        /* Mengatur agar elemen UI berada di atas kamera AR */
+        #ui-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            z-index: 10;
+        }
+        /* Menyembunyikan elemen A-Frame/AR.js saat tidak diperlukan */
+        .a-loader-title { color: #8B5CF6 !important; }
+        .a-enter-vr-button { display: none !important; }
+    </style>
+</head>
+
+<body class="bg-gray-100 font-sans">
+
+    <!-- Kontainer UI/Instruksi yang Muncul di Atas Kamera AR -->
+    <div id="ui-overlay" class="w-full p-4 md:p-8 bg-white/70 backdrop-blur-sm rounded-b-lg shadow-xl">
+        <h1 class="text-2xl font-bold text-purple-700 mb-2">Edukasi AR: Lawan Kekerasan</h1>
+        <p class="text-sm text-gray-700">Arahkan kamera ponsel Anda ke **Gambar Target** (`image target-01.jpg`). Video animasi akan muncul di atasnya dengan latar belakang transparan.</p>
+        <p class="text-xs text-green-600 font-semibold mt-2">
+            ✅ Marker Pattern sudah terdeteksi dan siap digunakan!
+        </p>
+    </div>
+
+    <!-- 1. A-ASSETS: Tempat untuk memuat aset (video, gambar) sebelum digunakan -->
+    <a-assets>
+        <!-- 
+            Menggunakan video yang diunggah. Video ini akan diproses dengan chroma key shader.
+        -->
+        <video id="videoAnimasi" preload="auto" loop="true" src="uploaded:Video 1.mp4" playsinline webkit-playsinline crossorigin="anonymous"></video>
+    </a-assets>
+
+    <!-- 2. A-SCENE: Mendefinisikan lingkungan Augmented Reality -->
+    <a-scene 
+        id="scene"
+        vr-mode-ui="enabled: false" 
+        loading-screen="enabled: false"
+        <!-- PERBAIKAN: Mengganti URL parameter kamera ke jalur yang benar untuk versi AR.js terbaru -->
+        arjs="sourceType: webcam; detectionMode: mono; cameraParametersUrl: https://raw.githack.com/AR-js-org/AR.js/master/aframe/build/camera-parameters.zip;"
+    >
+        
+        <!-- 3. A-MARKER: Mendefinisikan Target Gambar (Image Target) -->
+        <!-- 
+            URL marker diperbarui untuk menggunakan file .patt yang diunggah.
+        -->
+        <a-marker type='pattern' url='uploaded:pattern-image target-01.patt'>
+            
+            <!-- 4. A-VIDEO: Konten yang akan muncul setelah marker dikenali -->
+            <a-video 
+                id="videoAR"
+                src="#videoAnimasi" 
+                width="1.5" 
+                height="0.84" 
+                position="0 0 0" 
+                rotation="-90 0 0"
+                play-on-marker-found
+                
+                <!-- Menggunakan Chroma Key Shader untuk menghilangkan warna hijau -->
+                material="shader: chromakey; keyColor: #00ff00; transparent: true; opacity: 1.0"
+            ></a-video>
+
+        </a-marker>
+
+        <!-- 5. CAMERA: Kamera yang digunakan untuk melihat dunia nyata -->
+        <a-entity camera></a-entity>
+
+    </a-scene>
+
+    <!-- JavaScript untuk mendefinisikan Chroma Key Shader dan menangani pemutaran video -->
+    <script>
+        // 1. CHROMA KEY SHADER: Mengganti warna tertentu (hijau) dengan transparansi
+        AFRAME.registerShader('chromakey', {
+            schema: {
+                src: {type: 'map'},
+                keyColor: {default: '#00ff00', type: 'color', is: 'uniform'} // Warna hijau yang akan dihilangkan
+            },
+            vertexShader: `
+                varying vec2 vUv;
+                void main() {
+                    vUv = uv;
+                    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+                }
+            `,
+            fragmentShader: `
+                uniform sampler2D src;
+                uniform vec3 keyColor;
+                varying vec2 vUv;
+                
+                void main() {
+                    vec4 tex = texture2D(src, vUv);
+                    
+                    // Hitung perbedaan warna antara warna piksel dan keyColor
+                    float chroma_dist = distance(keyColor, tex.rgb);
+                    
+                    // Nilai toleransi (bisa disesuaikan, 0.4 adalah nilai yang umum)
+                    float tolerance = 0.4;
+                    
+                    // Jika perbedaan kurang dari toleransi, jadikan transparan (discard)
+                    if (chroma_dist < tolerance) {
+                        discard;
+                    }
+                    
+                    gl_FragColor = tex;
+                }
+            `
+        });
+
+        // 2. PLAY-ON-MARKER-FOUND COMPONENT: Memutar/menghentikan video saat marker ditemukan
+        const videoElement = document.getElementById('videoAnimasi');
+
+        AFRAME.registerComponent('play-on-marker-found', {
+            init: function () {
+                const marker = this.el.parentNode; 
+                const video = this.el.components.material.material.map.image; 
+
+                marker.addEventListener('markerFound', function () {
+                    console.log('Marker Ditemukan. Memutar video...');
+                    video.play();
+                });
+
+                marker.addEventListener('markerLost', function () {
+                    console.log('Marker Hilang. Menghentikan video...');
+                    video.pause();
+                    video.currentTime = 0; 
+                });
+
+                video.addEventListener('loadedmetadata', () => {
+                    video.muted = true; // Wajib untuk autoplay di HP
+                    video.play().catch(error => {
+                        console.warn("Autoplay gagal, mungkin karena kebijakan browser:", error);
+                    });
+                });
+            }
+        });
+    </script>
+
+</body>
+</html>
